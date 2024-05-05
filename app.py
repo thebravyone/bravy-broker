@@ -44,7 +44,7 @@ def format_with_units(num):
     ]  # Define units (K for thousands, M for millions, etc.)
     for unit in units:
         if abs(num) < 1000:
-            return "{:.2f}{} ISK".format(num, unit)
+            return "{:.1f}{} ISK".format(num, unit)
         num /= 1000
 
 
@@ -141,8 +141,22 @@ def parse_and_filter_data(data: pd.DataFrame, market_list: list[str]):
     return merged_data
 
 
+def generate_shopping_list(data: pd.DataFrame):
+    return "\n".join(
+        [f"{row['item_name']}\t{row['quantity']}" for index, row in data.iterrows()]
+    )
+
+
+def color_negative(data, color="rgb(110, 231, 183)"):
+    attr = "color: {}".format(color)
+    is_negative = data < 0
+    return pd.DataFrame(
+        np.where(is_negative, attr, ""), index=data.index, columns=data.columns
+    )
+
+
 st.set_page_config(
-    page_title="Bravy Broker SA",
+    page_title="Bravy Broker & Co",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -156,13 +170,13 @@ saved_percentage = 0
 
 # Sidebar
 with st.sidebar:
-    st.title("🏦 Bravy Broker SA")
+    st.title("🏦 Bravy Broker & Co")
     st.markdown(
         "Nós te ajudamos a encontrar os :green[**melhores preços**] 💸 entre :red[**Jita**] e as :red[**hubs null-sec**] próximas à :blue[**Brave Collective**]."
     )
 
     with st.form("appraisal_form", border=False):
-        raw_textarea = st.text_area("Cole aqui o que deseja comprar:")
+        raw_textarea = st.text_area("Cole aqui o que deseja comprar:", height=200)
         market_list = st.multiselect(
             label="Selecione os Market Hubs",
             placeholder="Escolha ao menos uma Hub",
@@ -173,8 +187,14 @@ with st.sidebar:
 
         st.form_submit_button("Submeter", use_container_width=True)
 
+    # st.divider()
+    # st.markdown(
+    #    "Os valores de logística são calculados utilizando :violet[**K7D-II**] como destino final."
+    # )
+    #
+
 # Top Bar
-metrics_col, chart_col = st.columns([0.2, 0.8])
+total_val, jita_val, saved_val, saved_percent = st.columns(4)
 
 # Render Data
 if raw_textarea != "":
@@ -192,15 +212,28 @@ if raw_textarea != "":
         else:
             saved_percentage = 0
 
-        metrics_col.metric(
-            label="Valor Total",
+        total_val.metric(
+            label="Seguindo a recomendação",
             value=format_with_units(total_value),
-            delta="{:,.1%} vs Jita".format(saved_percentage),
-            delta_color="inverse" if saved_percentage < 0 else "off",
+        )
+
+        jita_val.metric(
+            label="Em Jita Sell",
+            value=format_with_units(total_value_jita),
+        )
+
+        saved_val.metric(
+            label="Valor Economizado",
+            value=format_with_units(total_value_jita - total_value),
+        )
+
+        saved_percent.metric(
+            label="Valor Economizado (%)",
+            value="{:,.1%}".format(-saved_percentage),
         )
 
         hub_data = parsed_data.groupby("market_name", as_index=False).agg(
-            {"volume": "sum", "value": "sum"}
+            {"volume": "sum", "value": "sum", "var_sell_price_val": "sum"}
         )
 
         formatted_data = parsed_data.style.format(
@@ -209,30 +242,32 @@ if raw_textarea != "":
                 "type_volume": lambda x: "{:,.2f} m³".format(x),
                 "value": lambda x: "{:,.2f} ISK".format(x),
                 "volume": lambda x: "{:,.2f} m³".format(x),
-                "var_sell_price": lambda x: "{:,.1%}".format(x),
-                "var_sell_price_val": lambda x: "{:,.2f} ISK".format(x),
+                "var_sell_price": lambda x: "{:+,.1%}".format(x),
+                "var_sell_price_val": lambda x: "{:+,.2f} ISK".format(x),
             },
             thousands=".",
             decimal=",",
-        )
+        ).apply(color_negative, axis=None, subset=["var_sell_price_val"])
 
         hub_data = hub_data.style.format(
             {
                 "value": lambda x: "{:,.2f} ISK".format(x),
                 "volume": lambda x: "{:,.2f} m³".format(x),
+                "var_sell_price_val": lambda x: "{:+,.2f} ISK".format(x),
             },
             thousands=".",
             decimal=",",
-        )
+        ).apply(color_negative, axis=None, subset=["var_sell_price_val"])
 
         st.dataframe(
             formatted_data,
             hide_index=True,
+            use_container_width=True,
             column_order=[
+                "market_name",
                 "icon",
                 "type_name",
                 "quantity",
-                "market_name",
                 "type_volume",
                 "sell_price",
                 "volume",
@@ -254,15 +289,21 @@ if raw_textarea != "":
             },
         )
 
-        st.dataframe(
+        st.subheader("Resumo por Market Hub", divider="grey")
+
+        st.data_editor(
             hub_data,
             hide_index=True,
             column_config={
-                "market_name": "Market Hub",
-                "value": "Valor Total",
-                "volume": "Volume Total",
+                "market_name": st.column_config.Column("Market Hub", disabled=True),
+                "value": st.column_config.Column("Valor Total", disabled=True),
+                "volume": st.column_config.Column("Volume Total", disabled=True),
+                "var_sell_price_val": st.column_config.Column(
+                    "Preço vs Jita [ISK]", disabled=True
+                ),
             },
         )
+
     else:
         st.markdown(
             """
