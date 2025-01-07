@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
+from requests.auth import HTTPBasicAuth
 
 BASE_URL = "https://login.eveonline.com/v2/oauth/authorize/"
 
@@ -15,6 +16,7 @@ EVE_SECRET_KEY = os.getenv("EVE_SECRET_KEY")
 
 EVE_SCOPE = "publicData esi-markets.structure_markets.v1"
 EVE_CALLBACK_URL = "http://localhost:30001/"
+EVE_TOKEN_URL = "https://login.eveonline.com/v2/oauth/token/"
 
 
 print(
@@ -72,18 +74,27 @@ auth_code, auth_state = run_server()
 
 # Step 3 - Exchange the authorization code for an access token
 def get_access_token(auth_code):
-    token_url = "https://login.eveonline.com/v2/oauth/token"
+
+    auth = HTTPBasicAuth(EVE_CLIENT_ID, EVE_SECRET_KEY)
+
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Host": "login.eveonline.com",
+    }
+
     data = {
         "grant_type": "authorization_code",
         "code": auth_code,
-        "redirect_uri": EVE_CALLBACK_URL,
     }
-    auth = (EVE_CLIENT_ID, EVE_SECRET_KEY)
-    response = requests.post(token_url, data=data, auth=auth)
+
+    response = requests.post(
+        EVE_TOKEN_URL,
+        auth=auth,
+        data=data,
+        headers=headers,
+    )
     return response.json()
 
-
-refresh_token: str = None
 
 print("2 - Exchanging authorization code for access token")
 if auth_code and auth_state == state:
